@@ -2,6 +2,9 @@ name: Мир после — публикация
 
 on:
   workflow_dispatch:
+  schedule:
+    # 09:00 по Владивостоку (UTC+10), с понедельника по субботу
+    - cron: "0 23 * * 0-5"
 
 jobs:
   publish:
@@ -10,7 +13,33 @@ jobs:
       - name: Получить файлы проекта
         uses: actions/checkout@v4
 
-      - name: Проверить и отправить публикацию в Telegram
+      - name: Подготовить текст публикации
+        id: post
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          if os.environ.get("EVENT_NAME") == "schedule":
+              today = datetime.now(ZoneInfo("Asia/Vladivostok")).date().isoformat()
+              path = Path(f"posts/queue/{today}.txt")
+              if not path.exists():
+                  raise SystemExit(f"На {today} публикация не подготовлена. Ничего не отправлено.")
+          else:
+              path = Path("posts/next.txt")
+
+          text = path.read_text(encoding="utf-8").strip()
+          if not text or text.startswith("#") or text.startswith("<!--"):
+              raise SystemExit(f"{path} пуст или содержит шаблон")
+          Path("/tmp/post.txt").write_text(text, encoding="utf-8")
+          print(f"Подготовлен файл: {path}")
+          PY
+
+      - name: Опубликовать в Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
@@ -23,12 +52,10 @@ jobs:
 
           token = os.environ.get("TELEGRAM_BOT_TOKEN")
           channel = os.environ.get("TELEGRAM_CHANNEL_ID")
-          text = Path("posts/next.txt").read_text(encoding="utf-8").strip()
+          text = Path("/tmp/post.txt").read_text(encoding="utf-8")
 
           if not token or not channel:
               raise SystemExit("Не заданы GitHub Secrets TELEGRAM_BOT_TOKEN и TELEGRAM_CHANNEL_ID")
-          if not text or text.startswith("#") or text.startswith("<!--"):
-              raise SystemExit("posts/next.txt пуст или содержит только шаблон")
 
           data = urllib.parse.urlencode({"chat_id": channel, "text": text}).encode()
           req = urllib.request.Request(
