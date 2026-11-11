@@ -10,7 +10,7 @@ on:
 
 jobs:
   publish:
-    if: github.event_name != 'issues' || (github.event.action == 'opened' && github.event.issue.title == '[PUBLISH] next')
+    if: github.event_name != 'issues' || (github.event.action == 'opened' && (github.event.issue.title == '[PUBLISH] next' || github.event.issue.title == '[TEST] connection'))
     runs-on: ubuntu-latest
     steps:
       - name: Получить файлы проекта
@@ -26,17 +26,31 @@ jobs:
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
-          if os.environ.get("EVENT_NAME") == "schedule":
+          event = os.environ.get("EVENT_NAME")
+          if event == "issues":
+              import json
+              with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+                  issue = json.load(f)["issue"]
+              if issue.get("title") == "[TEST] connection":
+                  path = None
+                  image = Path("/nonexistent-test-cover.jpg")
+                  text = "Проверка связи: тестовая публикация из ChatGPT. Если вы видите это сообщение, автозапуск GitHub Actions и отправка в Telegram работают."
+              else:
+                  path = Path("posts/next.txt")
+                  image = Path("posts/next.jpg")
+                  text = path.read_text(encoding="utf-8").strip()
+          elif event == "schedule":
               today = datetime.now(ZoneInfo("Asia/Vladivostok")).date().isoformat()
               path = Path(f"posts/queue/{today}.txt")
               image = Path(f"posts/covers/{today}.jpg")
               if not path.exists():
                   raise SystemExit(f"На {today} публикация не подготовлена. Ничего не отправлено.")
+              text = path.read_text(encoding="utf-8").strip()
           else:
               path = Path("posts/next.txt")
               image = Path("posts/next.jpg")
+              text = path.read_text(encoding="utf-8").strip()
 
-          text = path.read_text(encoding="utf-8").strip()
           if not text or text.startswith("#") or text.startswith("<!--"):
               raise SystemExit(f"{path} пуст или содержит шаблон")
           Path("/tmp/post.txt").write_text(text, encoding="utf-8")
