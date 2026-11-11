@@ -27,14 +27,10 @@ jobs:
 
           if not token or not channel:
               raise SystemExit("Не заданы GitHub Secrets TELEGRAM_BOT_TOKEN и TELEGRAM_CHANNEL_ID")
-          if not text or text.startswith("#"):
+          if not text or text.startswith("#") or text.startswith("<!--"):
               raise SystemExit("posts/next.txt пуст или содержит только шаблон")
 
-          data = urllib.parse.urlencode({
-              "chat_id": channel,
-              "text": text,
-              "parse_mode": "HTML",
-          }).encode()
+          data = urllib.parse.urlencode({"chat_id": channel, "text": text}).encode()
           req = urllib.request.Request(
               f"https://api.telegram.org/bot{token}/sendMessage",
               data=data,
