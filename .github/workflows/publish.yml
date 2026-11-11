@@ -13,8 +13,7 @@ jobs:
       - name: Получить файлы проекта
         uses: actions/checkout@v4
 
-      - name: Подготовить текст публикации
-        id: post
+      - name: Подготовить текст и обложку
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -27,15 +26,22 @@ jobs:
           if os.environ.get("EVENT_NAME") == "schedule":
               today = datetime.now(ZoneInfo("Asia/Vladivostok")).date().isoformat()
               path = Path(f"posts/queue/{today}.txt")
+              image = Path(f"posts/covers/{today}.jpg")
               if not path.exists():
                   raise SystemExit(f"На {today} публикация не подготовлена. Ничего не отправлено.")
           else:
               path = Path("posts/next.txt")
+              image = Path("posts/next.jpg")
 
           text = path.read_text(encoding="utf-8").strip()
           if not text or text.startswith("#") or text.startswith("<!--"):
               raise SystemExit(f"{path} пуст или содержит шаблон")
           Path("/tmp/post.txt").write_text(text, encoding="utf-8")
+          if image.exists():
+              Path("/tmp/cover.jpg").write_bytes(image.read_bytes())
+              print(f"Подготовлена обложка: {image}")
+          else:
+              print(f"Обложка не найдена ({image}); будет отправлен текст без изображения")
           print(f"Подготовлен файл: {path}")
           PY
 
@@ -46,8 +52,8 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import uuid
           import urllib.request
-          import urllib.parse
           from pathlib import Path
 
           token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -57,15 +63,34 @@ jobs:
           if not token or not channel:
               raise SystemExit("Не заданы GitHub Secrets TELEGRAM_BOT_TOKEN и TELEGRAM_CHANNEL_ID")
 
-          data = urllib.parse.urlencode({"chat_id": channel, "text": text}).encode()
-          req = urllib.request.Request(
-              f"https://api.telegram.org/bot{token}/sendMessage",
-              data=data,
-              method="POST",
-          )
-          with urllib.request.urlopen(req, timeout=30) as response:
-              result = response.read().decode("utf-8")
-              print(result)
-              if '"ok":true' not in result:
-                  raise SystemExit("Telegram не подтвердил публикацию")
+          def telegram_request(method, fields=None, file_path=None):
+              url = f"https://api.telegram.org/bot{token}/{method}"
+              if file_path:
+                  boundary = "----ChatGPT" + uuid.uuid4().hex
+                  body = bytearray()
+                  for key, value in (fields or {}).items():
+                      body.extend(f"--{boundary}\r\n".encode())
+                      body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode())
+                      body.extend(str(value).encode())
+                      body.extend(b"\r\n")
+                  body.extend(f"--{boundary}\r\n".encode())
+                  body.extend(f'Content-Disposition: form-data; name="photo"; filename="cover.jpg"\r\n'.encode())
+                  body.extend(b"Content-Type: image/jpeg\r\n\r\n")
+                  body.extend(Path(file_path).read_bytes())
+                  body.extend(f"\r\n--{boundary}--\r\n".encode())
+                  req = urllib.request.Request(url, data=bytes(body), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST")
+              else:
+                  import urllib.parse
+                  data = urllib.parse.urlencode(fields or {}).encode()
+                  req = urllib.request.Request(url, data=data, method="POST")
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  result = response.read().decode("utf-8")
+                  print(result)
+                  if '"ok":true' not in result:
+                      raise SystemExit(f"Telegram не подтвердил {method}")
+          
+          cover = Path("/tmp/cover.jpg")
+          if cover.exists():
+              telegram_request("sendPhoto", {"chat_id": channel, "caption": "МИР ПОСЛЕ… | Дан Влив"}, str(cover))
+          telegram_request("sendMessage", {"chat_id": channel, "text": text})
           PY
