@@ -6,7 +6,43 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Тест
-        run: echo "Автоматизация Мир после готова"
+      - name: Получить файлы проекта
+        uses: actions/checkout@v4
+
+      - name: Проверить и отправить публикацию в Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.request
+          import urllib.parse
+          from pathlib import Path
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          channel = os.environ.get("TELEGRAM_CHANNEL_ID")
+          text = Path("posts/next.txt").read_text(encoding="utf-8").strip()
+
+          if not token or not channel:
+              raise SystemExit("Не заданы GitHub Secrets TELEGRAM_BOT_TOKEN и TELEGRAM_CHANNEL_ID")
+          if not text or text.startswith("#"):
+              raise SystemExit("posts/next.txt пуст или содержит только шаблон")
+
+          data = urllib.parse.urlencode({
+              "chat_id": channel,
+              "text": text,
+              "parse_mode": "HTML",
+          }).encode()
+          req = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=data,
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              result = response.read().decode("utf-8")
+              print(result)
+              if '"ok":true' not in result:
+                  raise SystemExit("Telegram не подтвердил публикацию")
+          PY
