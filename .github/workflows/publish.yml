@@ -1,0 +1,12 @@
+name: Мир после — публикация
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Тест
+        run: echo "Автоматизация Мир после готова"
