@@ -2,12 +2,15 @@ name: Мир после — публикация
 
 on:
   workflow_dispatch:
+  issues:
+    types: [opened]
   schedule:
     # 09:00 по Владивостоку (UTC+10), с понедельника по субботу
     - cron: "0 23 * * 0-5"
 
 jobs:
   publish:
+    if: github.event_name != 'issues' || (github.event.action == 'opened' && github.event.issue.title == '[PUBLISH] next')
     runs-on: ubuntu-latest
     steps:
       - name: Получить файлы проекта
